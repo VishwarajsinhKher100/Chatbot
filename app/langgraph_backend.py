@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# model
 model = init_chat_model("groq:llama-3.1-8b-instant")
 
 # State
