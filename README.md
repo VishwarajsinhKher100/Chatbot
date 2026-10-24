@@ -1,6 +1,6 @@
 # Multi-Turn LLM Conversation Chatbot
 
-A simple AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, and Groq**.
+A ChatGPT-inspired AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, and Groq**.
 
 The chatbot maintains conversation history using a unique session ID, allowing the LLM to use previous messages as context when generating responses.
 
@@ -19,7 +19,10 @@ The chatbot maintains conversation history using a unique session ID, allowing t
 - Context-aware responses using previous messages
 - Session-based conversation state
 - REST API for sending messages and receiving responses
-- Interactive chat interface
+- ChatGPT-style UI with a modern chat layout and sidebar
+- New-chat functionality
+- Recents section for switching between conversations
+- Interactive message composer and conversation view
 - Loading indicator while the AI generates a response
 - Error handling for failed API requests
 - FastAPI interactive API documentation
@@ -37,6 +40,7 @@ chatbot/
     ├── src/
     │   ├── App.jsx
     │   ├── App.css
+    │   ├── index.css
     │   └── main.jsx
     ├── package.json
     └── index.html
@@ -251,7 +255,7 @@ For persistent conversations, replace it with a supported database-backed LangGr
 
 ## Current Scope
 
-This project intentionally focuses only on multi-turn text conversations between a user and an LLM.
+This project focuses on multi-turn text conversations between a user and an LLM, presented in a ChatGPT-inspired interface.
 
 It does not include:
 
@@ -260,7 +264,10 @@ It does not include:
 - File uploads or document processing
 - Voice or image conversations
 - User authentication
-- Conversation database or history management UI
+- Persistent conversation history across browser refreshes
+- A backend API for listing or managing conversation history
+
+Note: Recent chats are currently held in frontend state. Persistent history requires additional storage and backend support.
 
 ## Troubleshooting
 
@@ -290,9 +297,9 @@ It does not include:
 ## Future Improvements
 
 - Persistent conversation storage
-- Multiple conversation sessions
+- Synchronization of recent chats with the backend
 - Streaming LLM responses
 - User authentication
-- Conversation history sidebar
+- Database-backed conversation history
 - Deployment using Docker
 - Production logging and monitoring
