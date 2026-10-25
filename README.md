@@ -2,7 +2,7 @@
 
 A ChatGPT-inspired AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, and Groq**.
 
-The chatbot maintains conversation history using a unique session ID, allowing the LLM to use previous messages as context when generating responses.
+The chatbot maintains conversation history using session IDs automatically managed and issued by the backend, allowing the LLM to use previous messages as context when generating responses.
 
 ## Tech Stack
 
@@ -17,11 +17,10 @@ The chatbot maintains conversation history using a unique session ID, allowing t
 
 - Multi-turn user and AI conversations
 - Context-aware responses using previous messages
-- Session-based conversation state
+- Backend-managed session creation and tracking
 - REST API for sending messages and receiving responses
-- ChatGPT-style UI with a modern chat layout and sidebar
+- ChatGPT-style UI with a modern chat layout
 - New-chat functionality
-- Recents section for switching between conversations
 - Interactive message composer and conversation view
 - Loading indicator while the AI generates a response
 - Error handling for failed API requests
@@ -56,7 +55,7 @@ Install the following before running the project:
 
 - Python 3.10 or later
 - Node.js and npm
-- An Groq API key
+- A Groq API key
 
 ## Installation and Setup
 
@@ -153,14 +152,15 @@ User
  v
 React Chat Interface
  |
- | POST /chat
+ | POST /chat (session_id is optional)
  v
 FastAPI Backend (main.py -> routers/chat.py)
  |
+ | Generate session_id if missing/null
  v
 LangGraph StateGraph (graph.py)
  |
- | Load conversation state
+ | Load conversation state via thread_id
  | Append user message
  v
 Groq Chat Model
@@ -170,24 +170,25 @@ Groq Chat Model
 LangGraph Checkpointer
  |
  v
-FastAPI JSON Response
+FastAPI JSON Response (returns reply & session_id)
  |
  v
-React Displays AI Reply
+React Saves session_id & Displays AI Reply
 ```
 
 ### Conversation Flow
 
 1. The user enters a message in the React chat interface.
-2. React sends the message and session ID to the FastAPI backend (/chat router).
-3. LangGraph retrieves the existing conversation state for that session via the checkpointer.
-4. The new user message is added to the conversation.
-5. The LLM generates a response using the conversation history.
-6. LangGraph saves the updated state using its checkpointer.
-7. FastAPI returns the response to React.
-8. React displays the AI reply in the chat interface.
+2. React sends the message and the current `session_id` (or `null` if starting a new chat) to the FastAPI backend (`/chat` endpoint).
+3. If no `session_id` is provided, the backend generates a new UUID.
+4. LangGraph retrieves the existing conversation state for that session via the checkpointer (`thread_id`).
+5. The new user message is added to the conversation.
+6. The LLM generates a response using the conversation history.
+7. LangGraph saves the updated state using its checkpointer.
+8. FastAPI returns the AI reply along with the `session_id`.
+9. React saves the returned `session_id` to state and displays the AI reply in the chat interface.
 
-The same session ID is reused for subsequent messages, allowing the conversation to continue across multiple turns.
+Subsequent messages in the same conversation automatically send the saved `session_id`, preserving conversation context. Clicking **"+ New chat"** clears the session ID on the frontend, causing the next message to trigger a new session on the backend.
 
 ## API Reference
 
@@ -211,12 +212,34 @@ Example response:
 
 Content type: `application/json`
 
-Request body:
+#### Initial Request (New Chat)
+
+Sending a request without a `session_id` (or with `null`) creates a new chat session:
 
 ```json
 {
-  "session_id": "session-123",
+  "session_id": null,
   "message": "Hello, my name is Vishwaraj."
+}
+```
+
+Example response (returns the generated `session_id`):
+
+```json
+{
+  "session_id": "a3b1c9d4-8e2f-4a1b-9c3d-5e6f7a8b9c0d",
+  "reply": "Hello Vishwaraj! Nice to meet you."
+}
+```
+
+#### Follow-up Request (Continuing Conversation)
+
+Send subsequent requests using the returned `session_id` to maintain context:
+
+```json
+{
+  "session_id": "a3b1c9d4-8e2f-4a1b-9c3d-5e6f7a8b9c0d",
+  "message": "What is my name?"
 }
 ```
 
@@ -224,23 +247,10 @@ Example response:
 
 ```json
 {
-  "session_id": "session-123",
-  "reply": "Hello Vishwaraj! Nice to meet you."
+  "session_id": "a3b1c9d4-8e2f-4a1b-9c3d-5e6f7a8b9c0d",
+  "reply": "Your name is Vishwaraj!"
 }
 ```
-
-Send another request with the same session ID:
-
-```json
-{
-  "session_id": "session-123",
-  "message": "What is my name?"
-}
-```
-
-The model can answer using the previous conversation context.
-
-Use a different session ID to start a separate conversation.
 
 ## LangGraph Conversation State
 
@@ -251,7 +261,7 @@ The graph consists of:
 - **State:** Stores the conversation messages.
 - **Chatbot node:** Invokes the LLM and returns its response.
 - **Start edge:** Routes execution to the chatbot node.
-- **Checkpointer:** Stores state associated with each conversation thread.
+- **Checkpointer:** Stores state associated with each conversation thread (`thread_id`).
 
 The `InMemorySaver` checkpointer is suitable for local development and demonstrations. Its state is lost when the backend process stops.
 
@@ -268,14 +278,12 @@ It does not include:
 - File uploads or document processing
 - Voice or image conversations
 - User authentication
-- Persistent conversation history across browser refreshes
+- Persistent conversation history across browser refreshes or backend restarts
 - A backend API for listing or managing conversation history
-
-Note: Recent chats are currently held in frontend state. Persistent history requires additional storage and backend support.
 
 ## Troubleshooting
 
-### OpenAI API Key Error
+### Groq API Key Error
 
 - Verify that the `.env` file exists in the backend directory.
 - Confirm that `GROQ_API_KEY` contains a valid key.
@@ -289,21 +297,20 @@ Note: Recent chats are currently held in frontend state. Persistent history requ
 
 ### Conversation Context Is Lost
 
-- Ensure that the same session ID is used for every message in a conversation.
+- Ensure that the `session_id` returned from the first response is being stored and included in follow-up requests.
 - Avoid restarting the backend when using `InMemorySaver`.
-- Use a persistent checkpointer if conversations must survive restarts.
+- Use a persistent checkpointer if conversations must survive server restarts.
 
 ### Model Errors
 
-- Verify that the configured model is available to your OpenAI account.
+- Verify that the configured model is available on your Groq account.
 - Check your API usage limits and billing configuration.
 
 ## Future Improvements
 
-- Persistent conversation storage
-- Synchronization of recent chats with the backend
-- Streaming LLM responses
+- Persistent conversation storage (PostgreSQL / Redis checkpointer)
+- Backend endpoints for saving, listing, and switching between past chat sessions
+- Streaming LLM responses (Server-Sent Events / WebSockets)
 - User authentication
-- Database-backed conversation history
 - Deployment using Docker
 - Production logging and monitoring

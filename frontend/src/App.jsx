@@ -3,12 +3,8 @@ import "./App.css";
 
 const API_URL = "http://localhost:8000/chat";
 
-function createSessionId() {
-  return crypto.randomUUID();
-}
-
 export default function App() {
-  const [sessionId, setSessionId] = useState(createSessionId);
+  const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,7 +22,7 @@ export default function App() {
   function handleNewChat() {
     if (loading) return;
 
-    setSessionId(createSessionId());
+    setSessionId(null);
     setMessages([]);
     setInput("");
     inputRef.current?.focus();
@@ -36,7 +32,6 @@ export default function App() {
     event?.preventDefault();
 
     const message = input.trim();
-
     if (!message || loading) return;
 
     const currentSessionId = sessionId;
@@ -56,7 +51,7 @@ export default function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          session_id: currentSessionId,
+          session_id: currentSessionId, // Will be null on first message
           message,
         }),
       });
@@ -67,14 +62,17 @@ export default function App() {
         try {
           const errorData = await response.json();
           errorMessage = errorData.detail || errorMessage;
-        } catch {
-          // Keep the default error message.
-        }
+        } catch {}
 
         throw new Error(errorMessage);
       }
 
       const data = await response.json();
+
+      // Save the session ID returned by the backend
+      if (!sessionId && data.session_id) {
+        setSessionId(data.session_id);
+      }
 
       setMessages((previous) => [
         ...previous,
