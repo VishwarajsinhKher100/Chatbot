@@ -15,12 +15,13 @@ The chatbot maintains conversation history using session IDs automatically manag
 
 ## Features
 
+- User Authentication (Sign In & Sign Up views)
+- Collapsible sidebar with modern ChatGPT-inspired layout
+- Sidebar-integrated **+ New chat** button and **Log out** functionality
 - Multi-turn user and AI conversations
 - Context-aware responses using previous messages
 - Backend-managed session creation and tracking
-- REST API for sending messages and receiving responses
-- ChatGPT-style UI with a modern chat layout
-- New-chat functionality
+- REST API for sending messages, receiving responses, and authentication
 - Interactive message composer and conversation view
 - Loading indicator while the AI generates a response
 - Error handling for failed API requests
@@ -41,6 +42,9 @@ chatbot/
 │
 └── frontend/
     ├── src/
+    │   ├── components/
+    │   │   ├── Auth.jsx
+    │   │   └── Auth.css
     │   ├── App.jsx
     │   ├── App.css
     │   ├── index.css
@@ -144,51 +148,54 @@ http://localhost:5173
 
 ## How It Works
 
-The application follows a simple request-response architecture.
+The application follows a simple request-response architecture with local authentication state management.
 
 ```text
-User
+User / Auth State
  |
- v
-React Chat Interface
- |
- | POST /chat (session_id is optional)
- v
-FastAPI Backend (main.py -> routers/chat.py)
- |
- | Generate session_id if missing/null
- v
-LangGraph StateGraph (graph.py)
- |
- | Load conversation state via thread_id
- | Append user message
- v
-Groq Chat Model
- |
- | Generate response
- v
-LangGraph Checkpointer
- |
- v
-FastAPI JSON Response (returns reply & session_id)
- |
- v
-React Saves session_id & Displays AI Reply
+ +--> Unauthenticated --> Auth View (Sign In / Sign Up)
+ |                             | (POST /signin or /signup)
+ |                             v
+ |                      Save Token & User Info
+ |                             |
+ +--> Authenticated --> Render Sidebar + Main Panel
+                            |
+                            | POST /chat (session_id is optional)
+                            v
+                    FastAPI Backend (main.py -> routers/chat.py)
+                            |
+                            | Generate session_id if missing/null
+                            v
+                    LangGraph StateGraph (graph.py)
+                            |
+                            | Load conversation state via thread_id
+                            | Append user message
+                            v
+                    Groq Chat Model
+                            |
+                            | Generate response
+                            v
+                    LangGraph Checkpointer
+                            |
+                            v
+                    FastAPI JSON Response (returns reply & session_id)
+                            |
+                            v
+                    React Saves session_id & Displays AI Reply
 ```
 
-### Conversation Flow
+### Conversation Flow & Session Management
 
-1. The user enters a message in the React chat interface.
-2. React sends the message and the current `session_id` (or `null` if starting a new chat) to the FastAPI backend (`/chat` endpoint).
-3. If no `session_id` is provided, the backend generates a new UUID.
-4. LangGraph retrieves the existing conversation state for that session via the checkpointer (`thread_id`).
-5. The new user message is added to the conversation.
-6. The LLM generates a response using the conversation history.
-7. LangGraph saves the updated state using its checkpointer.
-8. FastAPI returns the AI reply along with the `session_id`.
-9. React saves the returned `session_id` to state and displays the AI reply in the chat interface.
-
-Subsequent messages in the same conversation automatically send the saved `session_id`, preserving conversation context. Clicking **"+ New chat"** clears the session ID on the frontend, causing the next message to trigger a new session on the backend.
+1. **Authentication:** The user logs in via the `Auth` component. On successful authentication, the backend returns an access token and user information, which are stored in `localStorage`.
+2. **Sidebar Navigation:** The sidebar displays user details, the **+ New chat** button, and the **Log out** button.
+3. **Message Input:** The user enters a message in the main chat panel.
+4. **API Request:** React sends the message and the current `session_id` (or `null` if starting a new chat) to the FastAPI backend (`/chat` endpoint).
+5. **Session Generation:** If no `session_id` is provided, the backend generates a new UUID.
+6. **State Retrieval & LLM:** LangGraph retrieves existing conversation state via `thread_id`, appends the message, and calls the Groq model.
+7. **Response Handling:** FastAPI returns the AI reply along with the `session_id`. React updates state and displays the reply.
+8. **New Chat & Logout:**
+   - Clicking **"+ New chat"** in the sidebar resets the current `session_id` and active messages on the frontend.
+   - Clicking **"Log out"** clears `localStorage` credentials and returns the user to the Authentication screen.
 
 ## API Reference
 
@@ -206,6 +213,55 @@ Example response:
 }
 ```
 
+### Authentication
+
+#### User Sign Up
+
+**Endpoint:** `POST /signup`
+
+Request body:
+
+```json
+{
+  "name": "Vishwaraj",
+  "email": "user@example.com",
+  "password": "yourpassword"
+}
+```
+
+Example response:
+
+```json
+{
+  "access_token": "mock-jwt-token-123",
+  "token_type": "bearer",
+  "user_name": "Vishwaraj"
+}
+```
+
+#### User Sign In
+
+**Endpoint:** `POST /signin`
+
+Request body:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "yourpassword"
+}
+```
+
+Example response:
+
+```json
+{
+  "access_token": "mock-jwt-token-123",
+  "token_type": "bearer",
+  "user_name": "Vishwaraj"
+}
+```
+
 ### Send a Chat Message
 
 **Endpoint:** `POST /chat`
@@ -214,8 +270,6 @@ Content type: `application/json`
 
 #### Initial Request (New Chat)
 
-Sending a request without a `session_id` (or with `null`) creates a new chat session:
-
 ```json
 {
   "session_id": null,
@@ -223,7 +277,7 @@ Sending a request without a `session_id` (or with `null`) creates a new chat ses
 }
 ```
 
-Example response (returns the generated `session_id`):
+Example response:
 
 ```json
 {
@@ -233,8 +287,6 @@ Example response (returns the generated `session_id`):
 ```
 
 #### Follow-up Request (Continuing Conversation)
-
-Send subsequent requests using the returned `session_id` to maintain context:
 
 ```json
 {
@@ -269,7 +321,7 @@ For persistent conversations, replace it with a supported database-backed LangGr
 
 ## Current Scope
 
-This project focuses on multi-turn text conversations between a user and an LLM, presented in a ChatGPT-inspired interface.
+This project focuses on multi-turn text conversations between an authenticated user and an LLM in a sidebar-driven UI.
 
 It does not include:
 
@@ -277,9 +329,9 @@ It does not include:
 - External tools or autonomous agents
 - File uploads or document processing
 - Voice or image conversations
-- User authentication
+- Database-backed user account management (currently mock token implementation)
 - Persistent conversation history across browser refreshes or backend restarts
-- A backend API for listing or managing conversation history
+- A backend API for listing or managing past conversation history
 
 ## Troubleshooting
 
@@ -301,16 +353,15 @@ It does not include:
 - Avoid restarting the backend when using `InMemorySaver`.
 - Use a persistent checkpointer if conversations must survive server restarts.
 
-### Model Errors
+### Authentication Errors
 
-- Verify that the configured model is available on your Groq account.
-- Check your API usage limits and billing configuration.
+- Verify that `/signup` and `/signin` routes are correctly registered on your FastAPI app.
 
 ## Future Improvements
 
 - Persistent conversation storage (PostgreSQL / Redis checkpointer)
-- Backend endpoints for saving, listing, and switching between past chat sessions
+- Full database persistence for user credentials and hashed passwords
+- Backend endpoints for saving, listing, and switching between past chat sessions in the sidebar
 - Streaming LLM responses (Server-Sent Events / WebSockets)
-- User authentication
 - Deployment using Docker
 - Production logging and monitoring

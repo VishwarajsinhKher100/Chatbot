@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from "react";
+import Auth from "./components/Auth";
 import "./App.css";
 
 const API_URL = "http://localhost:8000/chat";
 
 export default function App() {
+  const [token, setToken] = useState(() => localStorage.getItem("token") || null);
+  const [userName, setUserName] = useState(() => localStorage.getItem("userName") || "");
+  
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const inputRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -18,6 +23,22 @@ export default function App() {
       block: "end",
     });
   }, [messages, loading]);
+
+  function handleLoginSuccess(data) {
+    localStorage.setItem("token", data.access_token);
+    localStorage.setItem("userName", data.user_name || "User");
+    setToken(data.access_token);
+    setUserName(data.user_name || "User");
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("userName");
+    setToken(null);
+    setUserName("");
+    setSessionId(null);
+    setMessages([]);
+  }
 
   function handleNewChat() {
     if (loading) return;
@@ -51,7 +72,7 @@ export default function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          session_id: currentSessionId, // Will be null on first message
+          session_id: currentSessionId,
           message,
         }),
       });
@@ -69,7 +90,6 @@ export default function App() {
 
       const data = await response.json();
 
-      // Save the session ID returned by the backend
       if (!sessionId && data.session_id) {
         setSessionId(data.session_id);
       }
@@ -104,12 +124,16 @@ export default function App() {
     }
   }
 
+  if (!token) {
+    return <Auth onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="app-shell">
-      <main className="main-panel">
-        <header className="topbar">
+      {/* Sidebar Section */}
+      <aside className={`sidebar ${sidebarOpen ? "open" : "closed"}`}>
+        <div className="sidebar-top">
           <h1 className="brand">Chatbot</h1>
-
           <button
             className="new-chat-button"
             type="button"
@@ -118,13 +142,42 @@ export default function App() {
           >
             + New chat
           </button>
+        </div>
+
+        <div className="sidebar-bottom">
+          <div className="user-profile-info">
+            <span className="user-avatar">{userName ? userName[0].toUpperCase() : "U"}</span>
+            <span className="user-name">{userName || "User"}</span>
+          </div>
+          <button
+            className="logout-button"
+            type="button"
+            onClick={handleLogout}
+          >
+            Log out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Chat Panel */}
+      <main className="main-panel">
+        <header className="topbar">
+          <button
+            className="sidebar-toggle-btn"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label="Toggle Sidebar"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+          </button>
         </header>
 
         <section
           className={`conversation ${messages.length ? "has-messages" : ""}`}
         >
           {messages.length === 0 ? (
-            <h2 className="welcome-title">What can I help you with?</h2>
+            <h2 className="welcome-title">What can I help you with, {userName}?</h2>
           ) : (
             <div className="message-list">
               {messages.map((message, index) => (
