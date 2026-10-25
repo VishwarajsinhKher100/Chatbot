@@ -33,7 +33,11 @@ The chatbot maintains conversation history using a unique session ID, allowing t
 chatbot/
 ├── backend/
 │   ├── main.py
-│   ├── __init__.py
+│   ├── graph.py
+│   ├── schemas.py
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   └── chat.py
 │   └── .env
 │
 └── frontend/
@@ -151,10 +155,10 @@ React Chat Interface
  |
  | POST /chat
  v
-FastAPI Backend
+FastAPI Backend (main.py -> routers/chat.py)
  |
  v
-LangGraph StateGraph
+LangGraph StateGraph (graph.py)
  |
  | Load conversation state
  | Append user message
@@ -175,8 +179,8 @@ React Displays AI Reply
 ### Conversation Flow
 
 1. The user enters a message in the React chat interface.
-2. React sends the message and session ID to the FastAPI backend.
-3. LangGraph retrieves the existing conversation state for that session.
+2. React sends the message and session ID to the FastAPI backend (/chat router).
+3. LangGraph retrieves the existing conversation state for that session via the checkpointer.
 4. The new user message is added to the conversation.
 5. The LLM generates a response using the conversation history.
 6. LangGraph saves the updated state using its checkpointer.
@@ -212,7 +216,7 @@ Request body:
 ```json
 {
   "session_id": "session-123",
-  "message": "Hello, my name is Rahul."
+  "message": "Hello, my name is Vishwaraj."
 }
 ```
 
@@ -221,7 +225,7 @@ Example response:
 ```json
 {
   "session_id": "session-123",
-  "reply": "Hello Rahul! Nice to meet you."
+  "reply": "Hello Vishwaraj! Nice to meet you."
 }
 ```
 
