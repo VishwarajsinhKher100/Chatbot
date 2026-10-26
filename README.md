@@ -1,21 +1,22 @@
 # Multi-Turn LLM Conversation Chatbot
 
-A ChatGPT-inspired AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, and Groq**.
+A ChatGPT-inspired AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, Groq, and PostgreSQL**.
 
-The chatbot maintains conversation history using session IDs automatically managed and issued by the backend, allowing the LLM to use previous messages as context when generating responses.
+The chatbot maintains conversation history and user credentials using a persistent PostgreSQL database, allowing users to sign up securely, log in, and persist their chat interactions.
 
 ## Tech Stack
 
 - **Frontend:** React, Vite, CSS
 - **Backend:** FastAPI, Python
+- **Database & ORM:** PostgreSQL, SQLAlchemy
 - **LLM Orchestration:** LangGraph
 - **LLM Integration:** LangChain Groq
-- **Conversation State:** LangGraph `InMemorySaver`
 - **LLM Provider:** Groq
 
 ## Features
 
-- User Authentication (Sign In & Sign Up views)
+- User Authentication with secure password hashing (Sign In & Sign Up)
+- Persistent PostgreSQL backend storage for user accounts and chat messages
 - Collapsible sidebar with modern ChatGPT-inspired layout
 - Sidebar-integrated **+ New chat** button and **Log out** functionality
 - Multi-turn user and AI conversations
@@ -24,7 +25,7 @@ The chatbot maintains conversation history using session IDs automatically manag
 - REST API for sending messages, receiving responses, and authentication
 - Interactive message composer and conversation view
 - Loading indicator while the AI generates a response
-- Error handling for failed API requests
+- Error handling for failed API requests and database constraints
 - FastAPI interactive API documentation
 
 ## Project Structure
@@ -33,10 +34,14 @@ The chatbot maintains conversation history using session IDs automatically manag
 chatbot/
 ├── backend/
 │   ├── main.py
+│   ├── database.py
+│   ├── models.py
+│   ├── auth_utils.py
 │   ├── graph.py
 │   ├── schemas.py
 │   ├── routers/
 │   │   ├── __init__.py
+│   │   ├── auth.py
 │   │   └── chat.py
 │   └── .env
 │
@@ -59,6 +64,7 @@ Install the following before running the project:
 
 - Python 3.10 or later
 - Node.js and npm
+- PostgreSQL installed and running locally or via a cloud provider
 - A Groq API key
 
 ## Installation and Setup
@@ -102,19 +108,30 @@ Install dependencies:
 uv sync
 ```
 
-### 3. Configure Environment Variables
+### 3. Set Up PostgreSQL Database
+
+1. Open your terminal or pgAdmin and create the PostgreSQL database:
+
+```SQL
+CREATE DATABASE chatbot_db;
+```
+
+2. Note your database credentials (username, password, host, port, and database name).
+
+### 4. Configure Environment Variables
 
 Create a `.env` file inside the `backend` directory:
 
 ```env
 GROQ_API_KEY=your_groq_api_key
+DATABASE_URL=postgresql://postgres:your_password@localhost:5432/chatbot_db
 ```
 
-Replace `your_groq_api_key` with your actual API key.
+Replace `your_groq_api_key` and `your_password` with your actual credentials. (Note: If your password contains special characters like @, make sure to URL encode them, e.g., `%40`).
 
 **Security:** Never commit your `.env` file or expose your API key in the React frontend.
 
-### 4. Start the Backend Server
+### 5. Start the Backend Server
 
 From the `backend` directory, run:
 
@@ -122,12 +139,14 @@ From the `backend` directory, run:
 uvicorn main:app --reload --port 8000
 ```
 
+The application will automatically create the users and chat_messages tables in your PostgreSQL database upon startup.
+
 The backend will run at:
 
 - API: http://localhost:8000
 - Interactive API documentation: http://localhost:8000/docs
 
-### 5. Set Up the Frontend
+### 6. Set Up the Frontend
 
 Open a new terminal and navigate to the frontend directory:
 
@@ -148,7 +167,7 @@ http://localhost:5173
 
 ## How It Works
 
-The application follows a simple request-response architecture with local authentication state management.
+The application follows a persistent request-response architecture backed by PostgreSQL and SQLAlchemy.
 
 ```text
 User / Auth State
@@ -156,7 +175,7 @@ User / Auth State
  +--> Unauthenticated --> Auth View (Sign In / Sign Up)
  |                             | (POST /signin or /signup)
  |                             v
- |                      Save Token & User Info
+ |                      Validate against PostgreSQL & Return Token
  |                             |
  +--> Authenticated --> Render Sidebar + Main Panel
                             |
@@ -164,7 +183,7 @@ User / Auth State
                             v
                     FastAPI Backend (main.py -> routers/chat.py)
                             |
-                            | Generate session_id if missing/null
+                            | Save User Message to PostgreSQL
                             v
                     LangGraph StateGraph (graph.py)
                             |
@@ -175,7 +194,7 @@ User / Auth State
                             |
                             | Generate response
                             v
-                    LangGraph Checkpointer
+                    Save Assistant Reply to PostgreSQL
                             |
                             v
                     FastAPI JSON Response (returns reply & session_id)
@@ -186,11 +205,11 @@ User / Auth State
 
 ### Conversation Flow & Session Management
 
-1. **Authentication:** The user logs in via the `Auth` component. On successful authentication, the backend returns an access token and user information, which are stored in `localStorage`.
+1. **Authentication:** The user registers or signs in via the `Auth` component. Credentials are validated against the PostgreSQL `users` table with secure password hashing.
 2. **Sidebar Navigation:** The sidebar displays user details, the **+ New chat** button, and the **Log out** button.
 3. **Message Input:** The user enters a message in the main chat panel.
-4. **API Request:** React sends the message and the current `session_id` (or `null` if starting a new chat) to the FastAPI backend (`/chat` endpoint).
-5. **Session Generation:** If no `session_id` is provided, the backend generates a new UUID.
+4. **API Request:** React sends the message and the current `session_id` to the FastAPI backend (`/chat` endpoint).
+5. **Database Logging**: Both the incoming user prompt and the resulting AI response are persisted in the PostgreSQL `chat_messages` table tied to the session and user.
 6. **State Retrieval & LLM:** LangGraph retrieves existing conversation state via `thread_id`, appends the message, and calls the Groq model.
 7. **Response Handling:** FastAPI returns the AI reply along with the `session_id`. React updates state and displays the reply.
 8. **New Chat & Logout:**
@@ -233,8 +252,7 @@ Example response:
 
 ```json
 {
-  "access_token": "mock-jwt-token-123",
-  "token_type": "bearer",
+  "access_token": "mock-jwt-token-1",
   "user_name": "Vishwaraj"
 }
 ```
@@ -256,8 +274,7 @@ Example response:
 
 ```json
 {
-  "access_token": "mock-jwt-token-123",
-  "token_type": "bearer",
+  "access_token": "mock-jwt-token-1",
   "user_name": "Vishwaraj"
 }
 ```
@@ -304,36 +321,13 @@ Example response:
 }
 ```
 
-## LangGraph Conversation State
-
-The chatbot uses LangGraph's `MessagesState` to manage the message history.
-
-The graph consists of:
-
-- **State:** Stores the conversation messages.
-- **Chatbot node:** Invokes the LLM and returns its response.
-- **Start edge:** Routes execution to the chatbot node.
-- **Checkpointer:** Stores state associated with each conversation thread (`thread_id`).
-
-The `InMemorySaver` checkpointer is suitable for local development and demonstrations. Its state is lost when the backend process stops.
-
-For persistent conversations, replace it with a supported database-backed LangGraph checkpointer, such as a PostgreSQL checkpointer.
-
-## Current Scope
-
-This project focuses on multi-turn text conversations between an authenticated user and an LLM in a sidebar-driven UI.
-
-It does not include:
-
-- Retrieval-Augmented Generation (RAG)
-- External tools or autonomous agents
-- File uploads or document processing
-- Voice or image conversations
-- Database-backed user account management (currently mock token implementation)
-- Persistent conversation history across browser refreshes or backend restarts
-- A backend API for listing or managing past conversation history
-
 ## Troubleshooting
+
+### PostgreSQL Connection Errors
+
+- Verify that your PostgreSQL service is running.
+- Check that your DATABASE_URL string in `.env` is formatted correctly: `postgresql://username:password@localhost:5432/chatbot_db`.
+- Ensure special characters in database passwords are URL-encoded.
 
 ### Groq API Key Error
 
@@ -347,21 +341,14 @@ It does not include:
 - Confirm that React is running on port `5173`.
 - Check the CORS configuration in `main.py`.
 
-### Conversation Context Is Lost
-
-- Ensure that the `session_id` returned from the first response is being stored and included in follow-up requests.
-- Avoid restarting the backend when using `InMemorySaver`.
-- Use a persistent checkpointer if conversations must survive server restarts.
-
 ### Authentication Errors
 
-- Verify that `/signup` and `/signin` routes are correctly registered on your FastAPI app.
+- Verify that `/signup` and `/signin` routes are correctly registered and included via `app.include_router(auth.router)`.
 
 ## Future Improvements
 
-- Persistent conversation storage (PostgreSQL / Redis checkpointer)
-- Full database persistence for user credentials and hashed passwords
-- Backend endpoints for saving, listing, and switching between past chat sessions in the sidebar
+- Backend endpoints for listing, viewing, and switching between historical chat sessions in the sidebar
+- Full JWT token generation and validation middleware
 - Streaming LLM responses (Server-Sent Events / WebSockets)
 - Deployment using Docker
 - Production logging and monitoring
