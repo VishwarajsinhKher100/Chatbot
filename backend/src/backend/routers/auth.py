@@ -3,13 +3,12 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
 from ..schemas import SignUpRequest, SignInRequest, AuthResponse
-from ..auth_utils import hash_password, verify_password
+from ..auth_utils import hash_password, verify_password, create_access_token
 
 router = APIRouter(tags=["auth"])
 
 @router.post("/signup", response_model=AuthResponse)
 def signup(request: SignUpRequest, db: Session = Depends(get_db)):
-    # Check if user already exists
     existing_user = db.query(User).filter(User.email == request.email).first()
     if existing_user:
         raise HTTPException(
@@ -17,7 +16,6 @@ def signup(request: SignUpRequest, db: Session = Depends(get_db)):
             detail="Email is already registered."
         )
     
-    # Create new user with hashed password
     new_user = User(
         name=request.name,
         email=request.email,
@@ -27,11 +25,12 @@ def signup(request: SignUpRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
+    access_token = create_access_token(data={"sub": new_user.email})
+
     return AuthResponse(
-        access_token=f"mock-jwt-token-{new_user.id}", # Replace with real JWT if needed
+        access_token=access_token,
         user_name=new_user.name
     )
-
 
 @router.post("/signin", response_model=AuthResponse)
 def signin(request: SignInRequest, db: Session = Depends(get_db)):
@@ -42,7 +41,9 @@ def signin(request: SignInRequest, db: Session = Depends(get_db)):
             detail="Invalid email or password."
         )
 
+    access_token = create_access_token(data={"sub": user.email})
+
     return AuthResponse(
-        access_token=f"mock-jwt-token-{user.id}",
+        access_token=access_token,
         user_name=user.name
     )

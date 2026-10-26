@@ -2,7 +2,7 @@
 
 A ChatGPT-inspired AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, Groq, and PostgreSQL**.
 
-The chatbot maintains conversation history and user credentials using a persistent PostgreSQL database, allowing users to sign up securely, log in, and persist their chat interactions.
+The chatbot maintains conversation history, user credentials, and secure session validation using a persistent PostgreSQL database, allowing users to sign up securely, log in with JSON Web Tokens (JWT), and persist their chat interactions.
 
 ## Tech Stack
 
@@ -12,17 +12,19 @@ The chatbot maintains conversation history and user credentials using a persiste
 - **LLM Orchestration:** LangGraph
 - **LLM Integration:** LangChain Groq
 - **LLM Provider:** Groq
+- **Security:** PyJWT, Passlib (Argon2)
 
 ## Features
 
-- User Authentication with secure password hashing (Sign In & Sign Up)
+- Secure User Authentication with Argon2 password hashing and signed JWT access tokens (Sign In & Sign Up)
+- FastAPI Dependency Injection middleware (`get_current_user`) for protected endpoints
 - Persistent PostgreSQL backend storage for user accounts and chat messages
 - Collapsible sidebar with modern ChatGPT-inspired layout
 - Sidebar-integrated **+ New chat** button and **Log out** functionality
 - Multi-turn user and AI conversations
 - Context-aware responses using previous messages
-- Backend-managed session creation and tracking
-- REST API for sending messages, receiving responses, and authentication
+- Backend-managed session creation and tracking bound to authenticated users
+- Centralized API service layer with automatic authorization token injection
 - Interactive message composer and conversation view
 - Loading indicator while the AI generates a response
 - Error handling for failed API requests and database constraints
@@ -37,6 +39,7 @@ chatbot/
 │   ├── database.py
 │   ├── models.py
 │   ├── auth_utils.py
+│   ├── dependencies.py
 │   ├── graph.py
 │   ├── schemas.py
 │   ├── routers/
@@ -50,10 +53,13 @@ chatbot/
     │   ├── components/
     │   │   ├── Auth.jsx
     │   │   └── Auth.css
+    │   ├── services/
+    │   │   └── api.js
     │   ├── App.jsx
     │   ├── App.css
     │   ├── index.css
     │   └── main.jsx
+    ├── .env
     ├── package.json
     └── index.html
 ```
@@ -76,7 +82,7 @@ git clone <your-repository-url>
 cd chatbot
 ```
 
-Replace `<your-repository-url>` with repository URL.
+Replace `<your-repository-url>` with your repository URL.
 
 ### 2. Set Up the Backend
 
@@ -118,18 +124,19 @@ CREATE DATABASE chatbot_db;
 
 2. Note your database credentials (username, password, host, port, and database name).
 
-### 4. Configure Environment Variables
+### 4. Configure Backend Environment Variables
 
 Create a `.env` file inside the `backend` directory:
 
 ```env
 GROQ_API_KEY=your_groq_api_key
 DATABASE_URL=postgresql://postgres:your_password@localhost:5432/chatbot_db
+SECRET_KEY=your_super_secret_jwt_signing_key_here
 ```
 
-Replace `your_groq_api_key` and `your_password` with your actual credentials. (Note: If your password contains special characters like @, make sure to URL encode them, e.g., `%40`).
+Replace `your_groq_api_key`, `your_password`, and `your_super_secret_jwt_signing_key_here` with your actual secure credentials. (Note: If your database password contains special characters like `@`, make sure to URL encode them, e.g., `%40`).
 
-**Security:** Never commit your `.env` file or expose your API key in the React frontend.
+**Security:** Never commit your `.env` file or expose your API keys and secret keys in the React frontend.
 
 ### 5. Start the Backend Server
 
@@ -155,6 +162,14 @@ cd frontend
 npm install
 ```
 
+#### Configure Frontend Environment Variables
+
+Create a `.env` file inside the `frontend` directory:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
 Start the React development server:
 
 ```bash
@@ -167,23 +182,23 @@ http://localhost:5173
 
 ## How It Works
 
-The application follows a persistent request-response architecture backed by PostgreSQL and SQLAlchemy.
+The application follows a secure persistent request-response architecture backed by PostgreSQL, SQLAlchemy, JWT validation middleware, and a centralized frontend service layer.
 
 ```text
 User / Auth State
  |
  +--> Unauthenticated --> Auth View (Sign In / Sign Up)
- |                             | (POST /signin or /signup)
+ |                             | (POST /signin or /signup via api.js)
  |                             v
- |                      Validate against PostgreSQL & Return Token
+ |                      Validate against PostgreSQL & Return Signed JWT
  |                             |
  +--> Authenticated --> Render Sidebar + Main Panel
                             |
-                            | POST /chat (session_id is optional)
+                            | POST /chat (session_id optional + Bearer Token)
                             v
-                    FastAPI Backend (main.py -> routers/chat.py)
+                    FastAPI Backend (Verified via get_current_user dependency)
                             |
-                            | Save User Message to PostgreSQL
+                            | Save User Message Tied to Authenticated User Email
                             v
                     LangGraph StateGraph (graph.py)
                             |
@@ -205,11 +220,11 @@ User / Auth State
 
 ### Conversation Flow & Session Management
 
-1. **Authentication:** The user registers or signs in via the `Auth` component. Credentials are validated against the PostgreSQL `users` table with secure password hashing.
+1. **Authentication:** The user registers or signs in via the `Auth` component using centralized API handlers (`api.js`). Credentials are verified against the PostgreSQL `users` table, checking Argon2 hashed passwords and returning a cryptographically signed JWT token.
 2. **Sidebar Navigation:** The sidebar displays user details, the **+ New chat** button, and the **Log out** button.
 3. **Message Input:** The user enters a message in the main chat panel.
-4. **API Request:** React sends the message and the current `session_id` to the FastAPI backend (`/chat` endpoint).
-5. **Database Logging**: Both the incoming user prompt and the resulting AI response are persisted in the PostgreSQL `chat_messages` table tied to the session and user.
+4. **API Request:** React uses the service layer to send the message, current `session_id`, and authorization Bearer token to the FastAPI backend (`/chat` endpoint).
+5. **Token Validation & Logging**: FastAPI decodes and validates the JWT header via `get_current_user`. Both the incoming user prompt and the resulting AI response are persisted in the PostgreSQL `chat_messages` table tied directly to the token's authenticated user email.
 6. **State Retrieval & LLM:** LangGraph retrieves existing conversation state via `thread_id`, appends the message, and calls the Groq model.
 7. **Response Handling:** FastAPI returns the AI reply along with the `session_id`. React updates state and displays the reply.
 8. **New Chat & Logout:**
@@ -252,7 +267,8 @@ Example response:
 
 ```json
 {
-  "access_token": "mock-jwt-token-1",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
   "user_name": "Vishwaraj"
 }
 ```
@@ -274,7 +290,8 @@ Example response:
 
 ```json
 {
-  "access_token": "mock-jwt-token-1",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
   "user_name": "Vishwaraj"
 }
 ```
@@ -283,7 +300,8 @@ Example response:
 
 **Endpoint:** `POST /chat`
 
-Content type: `application/json`
+Content type: `application/json`  
+Headers: `Authorization: Bearer <access_token>`
 
 #### Initial Request (New Chat)
 
@@ -329,26 +347,27 @@ Example response:
 - Check that your DATABASE_URL string in `.env` is formatted correctly: `postgresql://username:password@localhost:5432/chatbot_db`.
 - Ensure special characters in database passwords are URL-encoded.
 
-### Groq API Key Error
+### Groq API Key & JWT Secret Errors
 
-- Verify that the `.env` file exists in the backend directory.
-- Confirm that `GROQ_API_KEY` contains a valid key.
+- Verify that the `.env` file exists in the backend directory with valid `GROQ_API_KEY` and `SECRET_KEY` values.
 - Restart the backend after changing environment variables.
 
 ### Frontend Cannot Connect to Backend
 
 - Confirm that FastAPI is running on port `8000`.
 - Confirm that React is running on port `5173`.
+- Verify that `VITE_API_BASE_URL` is set correctly in `frontend/.env`.
 - Check the CORS configuration in `main.py`.
 
-### Authentication Errors
+### Authentication & Token Errors
 
 - Verify that `/signup` and `/signin` routes are correctly registered and included via `app.include_router(auth.router)`.
+- Ensure frontend requests transmit the correct JWT Bearer token headers via `api.js`.
 
 ## Future Improvements
 
 - Backend endpoints for listing, viewing, and switching between historical chat sessions in the sidebar
-- Full JWT token generation and validation middleware
+- Database persistence for LangGraph checkpointers (PostgresSaver) for multi-instance scaling
 - Streaming LLM responses (Server-Sent Events / WebSockets)
 - Deployment using Docker
 - Production logging and monitoring

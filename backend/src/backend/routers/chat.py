@@ -4,23 +4,25 @@ from sqlalchemy.orm import Session
 from langchain_core.messages import HumanMessage
 from ..schemas import ChatRequest, ChatResponse
 from ..database import get_db
-from ..models import ChatMessage
+from ..models import ChatMessage, User
+from ..dependencies import get_current_user
 from ..graph import graph
 
 router = APIRouter(tags=["chat"])
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest, db: Session = Depends(get_db)):
+def chat(
+    request: ChatRequest, 
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     try:
-        # Generate session_id on the backend if not provided
-        session_id = request.session_id
-        if not session_id:
-            session_id = str(uuid.uuid4())
+        session_id = request.session_id or str(uuid.uuid4())
 
-        # 1. Save user message to PostgreSQL
+        # 1. Save user message tied to authenticated user email
         user_msg_record = ChatMessage(
             session_id=session_id,
-            user_email="user@example.com", # Replace with authenticated user email from token
+            user_email=current_user.email,
             role="user",
             content=request.message
         )
@@ -37,10 +39,10 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)):
         if not isinstance(reply, str):
             reply = str(reply)
 
-        # 3. Save assistant response to PostgreSQL
+        # 3. Save assistant response
         assistant_msg_record = ChatMessage(
             session_id=session_id,
-            user_email="user@example.com",
+            user_email=current_user.email,
             role="assistant",
             content=reply
         )

@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Auth from "./components/Auth";
+import { chatApi } from "./services/api";
 import "./App.css";
-
-const API_URL = "http://localhost:8000/chat";
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem("token") || null);
@@ -17,12 +16,13 @@ export default function App() {
   const inputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, []);
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "end",
-    });
-  }, [messages, loading]);
+    scrollToBottom();
+  }, [messages, loading, scrollToBottom]);
 
   function handleLoginSuccess(data) {
     localStorage.setItem("token", data.access_token);
@@ -42,7 +42,6 @@ export default function App() {
 
   function handleNewChat() {
     if (loading) return;
-
     setSessionId(null);
     setMessages([]);
     setInput("");
@@ -51,64 +50,32 @@ export default function App() {
 
   async function handleSend(event) {
     event?.preventDefault();
-
     const message = input.trim();
     if (!message || loading) return;
 
     const currentSessionId = sessionId;
 
-    setMessages((previous) => [
-      ...previous,
-      { role: "user", content: message },
-    ]);
-
+    setMessages((prev) => [...prev, { role: "user", content: message }]);
     setInput("");
     setLoading(true);
 
     try {
-      const response = await fetch(API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          session_id: currentSessionId,
-          message,
-        }),
+      const data = await chatApi.sendMessage({
+        session_id: currentSessionId,
+        message,
       });
-
-      if (!response.ok) {
-        let errorMessage = `Request failed (${response.status})`;
-
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorMessage;
-        } catch {}
-
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
 
       if (!sessionId && data.session_id) {
         setSessionId(data.session_id);
       }
 
-      setMessages((previous) => [
-        ...previous,
-        {
-          role: "assistant",
-          content: data.reply,
-        },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
     } catch (error) {
-      setMessages((previous) => [
-        ...previous,
+      setMessages((prev) => [
+        ...prev,
         {
           role: "assistant",
-          content: `Unable to connect to the backend. ${
-            error.message || "Please check that your server is running."
-          }`,
+          content: `Unable to connect to the backend: ${error.message}`,
         },
       ]);
     } finally {
@@ -130,16 +97,10 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {/* Sidebar Section */}
       <aside className={`sidebar ${sidebarOpen ? "open" : "closed"}`}>
         <div className="sidebar-top">
           <h1 className="brand">Chatbot</h1>
-          <button
-            className="new-chat-button"
-            type="button"
-            onClick={handleNewChat}
-            disabled={loading}
-          >
+          <button className="new-chat-button" type="button" onClick={handleNewChat} disabled={loading}>
             + New chat
           </button>
         </div>
@@ -149,22 +110,17 @@ export default function App() {
             <span className="user-avatar">{userName ? userName[0].toUpperCase() : "U"}</span>
             <span className="user-name">{userName || "User"}</span>
           </div>
-          <button
-            className="logout-button"
-            type="button"
-            onClick={handleLogout}
-          >
+          <button className="logout-button" type="button" onClick={handleLogout}>
             Log out
           </button>
         </div>
       </aside>
 
-      {/* Main Chat Panel */}
       <main className="main-panel">
         <header className="topbar">
           <button
             className="sidebar-toggle-btn"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={() => setSidebarOpen((prev) => !prev)}
             aria-label="Toggle Sidebar"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
@@ -173,30 +129,21 @@ export default function App() {
           </button>
         </header>
 
-        <section
-          className={`conversation ${messages.length ? "has-messages" : ""}`}
-        >
+        <section className={`conversation ${messages.length ? "has-messages" : ""}`}>
           {messages.length === 0 ? (
             <h2 className="welcome-title">What can I help you with, {userName}?</h2>
           ) : (
             <div className="message-list">
-              {messages.map((message, index) => (
-                <article
-                  className={`chat-message ${message.role}`}
-                  key={`${index}-${message.role}`}
-                >
-                  {message.role === "assistant" && (
-                    <div className="assistant-mark">✳</div>
-                  )}
-
-                  <div className="message-content">{message.content}</div>
+              {messages.map((msg, index) => (
+                <article className={`chat-message ${msg.role}`} key={`${index}-${msg.role}`}>
+                  {msg.role === "assistant" && <div className="assistant-mark">✳</div>}
+                  <div className="message-content">{msg.content}</div>
                 </article>
               ))}
 
               {loading && (
                 <article className="chat-message assistant">
                   <div className="assistant-mark">✳</div>
-
                   <div className="message-content typing">
                     <span />
                     <span />
@@ -204,7 +151,6 @@ export default function App() {
                   </div>
                 </article>
               )}
-
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -215,33 +161,27 @@ export default function App() {
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Message your chatbot..."
               aria-label="Message"
               rows={1}
               disabled={loading}
             />
-
             <button
               className="send-button"
               type="submit"
               disabled={loading || !input.trim()}
               aria-label="Send message"
             >
-              {loading ? (
-                <span className="send-spinner" />
-              ) : (
+              {loading ? <span className="send-spinner" /> : (
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 19V5M6 11l6-6 6 6" />
                 </svg>
               )}
             </button>
           </form>
-
-          <p className="disclaimer">
-            AI can make mistakes. Check important information.
-          </p>
+          <p className="disclaimer">AI can make mistakes. Check important information.</p>
         </div>
       </main>
     </div>
