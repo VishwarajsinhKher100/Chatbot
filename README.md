@@ -2,7 +2,7 @@
 
 A ChatGPT-inspired AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, Groq, and PostgreSQL**.
 
-The chatbot maintains conversation history, user credentials, and secure session validation using a persistent PostgreSQL database, allowing users to sign up securely, log in with JSON Web Tokens (JWT), and persist their chat interactions.
+The chatbot maintains conversation history, user credentials, and secure session validation using a persistent PostgreSQL database, allowing users to sign up securely, log in with JSON Web Tokens (JWT), and seamlessly switch between previous chat conversations via the sidebar.
 
 ## Tech Stack
 
@@ -18,9 +18,10 @@ The chatbot maintains conversation history, user credentials, and secure session
 
 - Secure User Authentication with Argon2 password hashing and signed JWT access tokens (Sign In & Sign Up)
 - FastAPI Dependency Injection middleware (`get_current_user`) for protected endpoints
-- Persistent PostgreSQL backend storage for user accounts and chat messages
+- Persistent PostgreSQL backend storage for user accounts, session metadata, and chat messages
 - Collapsible sidebar with modern ChatGPT-inspired layout
-- Sidebar-integrated **+ New chat** button and **Log out** functionality
+- Sidebar-integrated **Recent Chats** history section to browse and switch between past conversations
+- Sidebar **+ New chat** button and **Log out** functionality
 - Multi-turn user and AI conversations
 - Context-aware responses using previous messages
 - Backend-managed session creation and tracking bound to authenticated users
@@ -118,7 +119,7 @@ uv sync
 
 1. Open your terminal or pgAdmin and create the PostgreSQL database:
 
-```SQL
+```sql
 CREATE DATABASE chatbot_db;
 ```
 
@@ -192,43 +193,49 @@ User / Auth State
  |                             v
  |                      Validate against PostgreSQL & Return Signed JWT
  |                             |
- +--> Authenticated --> Render Sidebar + Main Panel
+ +--> Authenticated --> Render Sidebar (with Recent Chats) + Main Panel
                             |
-                            | POST /chat (session_id optional + Bearer Token)
-                            v
+                            +--> Select Past Session (GET /sessions/:id)
+                            |        |
+                            |        v
+                            |    Load Previous Conversation Messages
+                            |
+                            +--> Send Message (POST /chat + Bearer Token)
+                                     v
                     FastAPI Backend (Verified via get_current_user dependency)
-                            |
-                            | Save User Message Tied to Authenticated User Email
-                            v
-                    LangGraph StateGraph (graph.py)
-                            |
-                            | Load conversation state via thread_id
-                            | Append user message
-                            v
-                    Groq Chat Model
-                            |
-                            | Generate response
-                            v
-                    Save Assistant Reply to PostgreSQL
-                            |
-                            v
-                    FastAPI JSON Response (returns reply & session_id)
-                            |
-                            v
-                    React Saves session_id & Displays AI Reply
+                                     |
+                                     | Save User Message Tied to Authenticated User Email
+                                     v
+                             LangGraph StateGraph (graph.py)
+                                     |
+                                     | Load conversation state via thread_id
+                                     | Append user message
+                                     v
+                             Groq Chat Model
+                                     |
+                                     | Generate response
+                                     v
+                             Save Assistant Reply to PostgreSQL
+                                     |
+                                     v
+                             FastAPI JSON Response (returns reply & session_id)
+                                     |
+                                     v
+                             React Updates Session & Refreshes Recent Chats Sidebar List
 ```
 
 ### Conversation Flow & Session Management
 
 1. **Authentication:** The user registers or signs in via the `Auth` component using centralized API handlers (`api.js`). Credentials are verified against the PostgreSQL `users` table, checking Argon2 hashed passwords and returning a cryptographically signed JWT token.
-2. **Sidebar Navigation:** The sidebar displays user details, the **+ New chat** button, and the **Log out** button.
-3. **Message Input:** The user enters a message in the main chat panel.
-4. **API Request:** React uses the service layer to send the message, current `session_id`, and authorization Bearer token to the FastAPI backend (`/chat` endpoint).
-5. **Token Validation & Logging**: FastAPI decodes and validates the JWT header via `get_current_user`. Both the incoming user prompt and the resulting AI response are persisted in the PostgreSQL `chat_messages` table tied directly to the token's authenticated user email.
-6. **State Retrieval & LLM:** LangGraph retrieves existing conversation state via `thread_id`, appends the message, and calls the Groq model.
-7. **Response Handling:** FastAPI returns the AI reply along with the `session_id`. React updates state and displays the reply.
-8. **New Chat & Logout:**
-   - Clicking **"+ New chat"** in the sidebar resets the current `session_id` and active messages on the frontend.
+2. **Sidebar & Recent Chats:** Upon login, the frontend fetches the user's historical chat sessions (`GET /sessions`) and populates the **Recent Chats** list in the sidebar.
+3. **Switching Sessions:** Clicking on any session in the sidebar triggers `GET /sessions/{session_id}` to fetch and render that session's full message log.
+4. **Message Input:** The user enters a message in the main chat panel.
+5. **API Request:** React uses the service layer to send the message, current `session_id`, and authorization Bearer token to the FastAPI backend (`/chat` endpoint).
+6. **Token Validation & Logging**: FastAPI decodes and validates the JWT header via `get_current_user`. Both the incoming user prompt and the resulting AI response are persisted in the PostgreSQL `chat_messages` table tied directly to the token's authenticated user email.
+7. **State Retrieval & LLM:** LangGraph retrieves existing conversation state via `thread_id`, appends the message, and calls the Groq model.
+8. **Response Handling:** FastAPI returns the AI reply along with the `session_id`. React updates state, displays the reply, and re-fetches session lists to update the sidebar.
+9. **New Chat & Logout:**
+   - Clicking **"+ New chat"** in the sidebar resets the active `session_id` and message view on the frontend.
    - Clicking **"Log out"** clears `localStorage` credentials and returns the user to the Authentication screen.
 
 ## API Reference
@@ -293,6 +300,52 @@ Example response:
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "token_type": "bearer",
   "user_name": "Vishwaraj"
+}
+```
+
+### Session History
+
+#### List User Sessions
+
+**Endpoint:** `GET /sessions`
+
+Headers: `Authorization: Bearer <access_token>`
+
+Example response:
+
+```json
+[
+  {
+    "session_id": "a3b1c9d4-8e2f-4a1b-9c3d-5e6f7a8b9c0d",
+    "title": "Hello, my name is Vishwaraj...",
+    "created_at": "2026-03-30T10:15:30Z"
+  }
+]
+```
+
+#### Get Session Messages
+
+**Endpoint:** `GET /sessions/{session_id}`
+
+Headers: `Authorization: Bearer <access_token>`
+
+Example response:
+
+```json
+{
+  "session_id": "a3b1c9d4-8e2f-4a1b-9c3d-5e6f7a8b9c0d",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello, my name is Vishwaraj.",
+      "created_at": "2026-03-30T10:15:30Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello Vishwaraj! Nice to meet you.",
+      "created_at": "2026-03-30T10:15:32Z"
+    }
+  ]
 }
 ```
 
@@ -366,7 +419,7 @@ Example response:
 
 ## Future Improvements
 
-- Backend endpoints for listing, viewing, and switching between historical chat sessions in the sidebar
+- Ability to rename and delete historical chat sessions directly from the sidebar
 - Database persistence for LangGraph checkpointers (PostgresSaver) for multi-instance scaling
 - Streaming LLM responses (Server-Sent Events / WebSockets)
 - Deployment using Docker

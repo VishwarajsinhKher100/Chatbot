@@ -17,9 +17,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def health():
     return {"status": "Chatbot API is running"}
+
 
 # Include routers
 app.include_router(chat.router)

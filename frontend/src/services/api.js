@@ -1,8 +1,9 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 async function request(endpoint, options = {}) {
   const token = localStorage.getItem("token");
-  
+
   const headers = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -27,10 +28,16 @@ async function request(endpoint, options = {}) {
 }
 
 export const authApi = {
-  signin: (credentials) => request("/signin", { method: "POST", body: JSON.stringify(credentials) }),
-  signup: (userData) => request("/signup", { method: "POST", body: JSON.stringify(userData) }),
+  signin: (credentials) =>
+    request("/signin", { method: "POST", body: JSON.stringify(credentials) }),
+  signup: (userData) =>
+    request("/signup", { method: "POST", body: JSON.stringify(userData) }),
 };
 
 export const chatApi = {
-  sendMessage: (payload) => request("/chat", { method: "POST", body: JSON.stringify(payload) }),
+  sendMessage: (payload) =>
+    request("/chat", { method: "POST", body: JSON.stringify(payload) }),
+  getSessions: () => request("/sessions", { method: "GET" }),
+  getSessionHistory: (sessionId) =>
+    request(`/sessions/${sessionId}`, { method: "GET" }),
 };
