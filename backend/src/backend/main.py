@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .models import User, ChatMessage
-from .routers import chat, auth
+from .routers import chat, auth, rag
 
 # This line creates the tables in PostgreSQL if they don't already exist
 Base.metadata.create_all(bind=engine)
@@ -26,3 +26,4 @@ def health():
 # Include routers
 app.include_router(chat.router)
 app.include_router(auth.router)
+app.include_router(rag.router)

@@ -2,15 +2,15 @@
 
 A ChatGPT-inspired AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, Groq, and PostgreSQL**.
 
-The chatbot maintains conversation history, user credentials, and secure session validation using a persistent PostgreSQL database, allowing users to sign up securely, log in with JSON Web Tokens (JWT), and seamlessly switch between previous chat conversations via the sidebar.
+The chatbot maintains conversation history, user credentials, and secure session validation using a persistent PostgreSQL database, allowing users to sign up securely, log in with JSON Web Tokens (JWT), seamlessly switch between previous chat conversations via the sidebar, and perform Retrieval-Augmented Generation (RAG) by uploading and removing PDF documents.
 
 ## Tech Stack
 
 - **Frontend:** React, Vite, CSS
 - **Backend:** FastAPI, Python
-- **Database & ORM:** PostgreSQL, SQLAlchemy
+- **Database & ORM:** PostgreSQL, SQLAlchemy, Chroma (Vector Store)
 - **LLM Orchestration:** LangGraph
-- **LLM Integration:** LangChain Groq
+- **LLM Integration:** LangChain Groq, HuggingFace Embeddings
 - **LLM Provider:** Groq
 - **Security:** PyJWT, Passlib (Argon2)
 
@@ -19,14 +19,16 @@ The chatbot maintains conversation history, user credentials, and secure session
 - Secure User Authentication with Argon2 password hashing and signed JWT access tokens (Sign In & Sign Up)
 - FastAPI Dependency Injection middleware (`get_current_user`) for protected endpoints
 - Persistent PostgreSQL backend storage for user accounts, session metadata, and chat messages
+- Vector database integration (Chroma) for document chunk storage and semantic search embeddings
+- Session-isolated PDF document upload, context-aware RAG answering, and file deletion
 - Collapsible sidebar with modern ChatGPT-inspired layout
 - Sidebar-integrated **Recent Chats** history section to browse and switch between past conversations
 - Sidebar **+ New chat** button and **Log out** functionality
 - Multi-turn user and AI conversations
-- Context-aware responses using previous messages
+- Context-aware responses using previous messages and attached PDF context
 - Backend-managed session creation and tracking bound to authenticated users
 - Centralized API service layer with automatic authorization token injection
-- Interactive message composer and conversation view
+- Interactive message composer with file attachment preview and removal badges
 - Loading indicator while the AI generates a response
 - Error handling for failed API requests and database constraints
 - FastAPI interactive API documentation
@@ -43,10 +45,12 @@ chatbot/
 │   ├── dependencies.py
 │   ├── graph.py
 │   ├── schemas.py
+│   ├── rag_store.py
 │   ├── routers/
 │   │   ├── __init__.py
 │   │   ├── auth.py
-│   │   └── chat.py
+│   │   ├── chat.py
+│   │   └── rag.py
 │   └── .env
 │
 └── frontend/
@@ -114,6 +118,8 @@ Install dependencies:
 ```bash
 uv sync
 ```
+
+(Note: Ensure you install required RAG and security packages including python-jose, sentence-transformers, chromadb, and pypdf).
 
 ### 3. Set Up PostgreSQL Database
 
@@ -183,7 +189,7 @@ http://localhost:5173
 
 ## How It Works
 
-The application follows a secure persistent request-response architecture backed by PostgreSQL, SQLAlchemy, JWT validation middleware, and a centralized frontend service layer.
+The application follows a secure persistent request-response architecture backed by PostgreSQL, SQLAlchemy, Chroma vector embeddings, JWT validation middleware, and a centralized frontend service layer.
 
 ```text
 User / Auth State
@@ -200,6 +206,11 @@ User / Auth State
                             |        v
                             |    Load Previous Conversation Messages
                             |
+                            +--> Upload PDF (POST /upload-pdf)
+                            |        |
+                            |        v
+                            |    Extract Text, Chunk & Embed into Chroma Vector Store
+                            |
                             +--> Send Message (POST /chat + Bearer Token)
                                      v
                     FastAPI Backend (Verified via get_current_user dependency)
@@ -208,8 +219,9 @@ User / Auth State
                                      v
                              LangGraph StateGraph (graph.py)
                                      |
+                                     | Retrieve Session-Specific RAG Context from Chroma
                                      | Load conversation state via thread_id
-                                     | Append user message
+                                     | Append user message + context
                                      v
                              Groq Chat Model
                                      |
@@ -229,12 +241,14 @@ User / Auth State
 1. **Authentication:** The user registers or signs in via the `Auth` component using centralized API handlers (`api.js`). Credentials are verified against the PostgreSQL `users` table, checking Argon2 hashed passwords and returning a cryptographically signed JWT token.
 2. **Sidebar & Recent Chats:** Upon login, the frontend fetches the user's historical chat sessions (`GET /sessions`) and populates the **Recent Chats** list in the sidebar.
 3. **Switching Sessions:** Clicking on any session in the sidebar triggers `GET /sessions/{session_id}` to fetch and render that session's full message log.
-4. **Message Input:** The user enters a message in the main chat panel.
-5. **API Request:** React uses the service layer to send the message, current `session_id`, and authorization Bearer token to the FastAPI backend (`/chat` endpoint).
-6. **Token Validation & Logging**: FastAPI decodes and validates the JWT header via `get_current_user`. Both the incoming user prompt and the resulting AI response are persisted in the PostgreSQL `chat_messages` table tied directly to the token's authenticated user email.
-7. **State Retrieval & LLM:** LangGraph retrieves existing conversation state via `thread_id`, appends the message, and calls the Groq model.
-8. **Response Handling:** FastAPI returns the AI reply along with the `session_id`. React updates state, displays the reply, and re-fetches session lists to update the sidebar.
-9. **New Chat & Logout:**
+4. **PDF Attachment & RAG:** Users can attach a PDF document using the clip icon (`POST /upload-pdf`), which extracts, chunks, and indexes the text into Chroma tagged with the active session ID. Subsequent questions query the vector store for precise context retrieval.
+5. **Deleting PDFs:** Users can remove attached PDFs from active sessions (`DELETE /session-docs/{session_id}`), wiping the corresponding vector embeddings.
+6. **Message Input:** The user enters a message in the main chat panel.
+7. **API Request:** React uses the service layer to send the message, current `session_id`, and authorization Bearer token to the FastAPI backend (`/chat` endpoint).
+8. **Token Validation & Logging**: FastAPI decodes and validates the JWT header via `get_current_user`. Both the incoming user prompt and the resulting AI response are persisted in the PostgreSQL `chat_messages` table tied directly to the token's authenticated user email.
+9. **State Retrieval & LLM:** LangGraph retrieves existing conversation state via `thread_id`, appends the message, and calls the Groq model combined with retrieved document context.
+10. **Response Handling:** FastAPI returns the AI reply along with the `session_id`. React updates state, displays the reply, and re-fetches session lists to update the sidebar.
+11. **New Chat & Logout:**
    - Clicking **"+ New chat"** in the sidebar resets the active `session_id` and message view on the frontend.
    - Clicking **"Log out"** clears `localStorage` credentials and returns the user to the Authentication screen.
 
@@ -349,6 +363,46 @@ Example response:
 }
 ```
 
+### Knowledge Base & RAG
+
+#### Upload and Index PDF
+
+**Endpoint:** `POST /upload-pdf`
+
+Content type: `multipart/form-data`
+
+Headers: `Authorization: Bearer <access_token>`
+
+Form Data:
+
+- file: PDF file binary
+- session_id: string (optional)
+
+Example response:
+
+```json
+{
+  "status": "success",
+  "session_id": "a3b1c9d4-8e2f-4a1b-9c3d-5e6f7a8b9c0d",
+  "filename": "document.pdf",
+  "message": "PDF uploaded and indexed successfully."
+}
+```
+
+#### Delete Session PDF Embeddings
+
+**Endpoint:** `DELETE /session-docs/{session_id}`
+
+Headers: `Authorization: Bearer <access_token>`
+
+Example response:
+
+```json
+{
+  "status": "success",
+  "message": "PDF data cleared for session."
+}
+```
 ### Send a Chat Message
 
 **Endpoint:** `POST /chat`

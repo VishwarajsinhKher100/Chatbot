@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import Auth from "./components/Auth";
-import { chatApi } from "./services/api";
+import { chatApi, ragApi } from "./services/api";
 import "./App.css";
 
 export default function App() {
@@ -17,6 +17,7 @@ export default function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [uploadedFile, setUploadedFile] = useState(null);
 
   const inputRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -137,6 +138,34 @@ export default function App() {
     return <Auth onLoginSuccess={handleLoginSuccess} />;
   }
 
+  async function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      const data = await ragApi.uploadPdf(file, sessionId);
+      if (!sessionId && data.session_id) {
+        setSessionId(data.session_id);
+      }
+      setUploadedFile(file.name);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRemovePdf() {
+    if (!sessionId) return;
+    try {
+      await ragApi.deleteSessionDocs(sessionId);
+      setUploadedFile(null);
+    } catch (err) {
+      console.error("Failed to delete PDF:", err);
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "open" : "closed"}`}>
@@ -243,27 +272,57 @@ export default function App() {
         </section>
 
         <div className="composer-area">
+          {/* PDF Attached Preview Badge */}
+          {uploadedFile && (
+            <div className="attached-file-badge">
+              <span>📄 {uploadedFile}</span>
+              <button type="button" onClick={handleRemovePdf}>
+                ×
+              </button>
+            </div>
+          )}
+
           <form className="composer" onSubmit={handleSend}>
+            {/* Attachment Button */}
+            <label className="attach-button" aria-label="Attach PDF">
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={handleFileChange}
+                hidden
+                disabled={loading}
+              />
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+              </svg>
+            </label>
+
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Message your chatbot..."
-              aria-label="Message"
+              placeholder="Message your chatbot or attach PDF..."
               rows={1}
               disabled={loading}
             />
+
             <button
               className="send-button"
               type="submit"
-              disabled={loading || !input.trim()}
-              aria-label="Send message"
+              disabled={loading || (!input.trim() && !uploadedFile)}
             >
               {loading ? (
                 <span className="send-spinner" />
               ) : (
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
                   <path d="M12 19V5M6 11l6-6 6 6" />
                 </svg>
               )}
