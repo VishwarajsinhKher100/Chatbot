@@ -11,3 +11,5 @@ wheels/
 
 # environment variable
 .env
+
+chroma_db/
