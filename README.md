@@ -1,4 +1,17 @@
-# Multi-Turn LLM Conversation Chatbot
+# ConvoRAG – Stateful Multi-Turn Conversational AI Assistant
+
+ConvoRAG is a ChatGPT-inspired conversational AI application that supports continuous multi-turn conversations and context-aware PDF-based Retrieval-Augmented Generation (RAG).
+
+Built using React, FastAPI, LangGraph, Groq, PostgreSQL, and ChromaDB, it provides secure user authentication, persistent conversation history, session-isolated document retrieval, and seamless switching between previous conversations.
+
+### Key Features
+- Secure authentication using JWT and Argon2 password hashing.
+- Multi-turn conversational AI powered by Groq and LangGraph.
+- PDF-based Retrieval-Augmented Generation (RAG).
+- Session-isolated document storage and semantic search using ChromaDB.
+- Persistent chat history and conversation management using PostgreSQL.
+- Context-aware responses based on conversation history and uploaded documents.
+- Interactive ChatGPT-inspired React interface.
 
 A ChatGPT-inspired AI chatbot that supports continuous, multi-turn conversations between a user and a Large Language Model (LLM). Built with **React, FastAPI, LangGraph, Groq, and PostgreSQL**.
 
